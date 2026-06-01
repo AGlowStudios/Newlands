@@ -1,4 +1,3 @@
-// online-users.js - VERSIÓN CORREGIDA
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { doc, setDoc, onSnapshot, serverTimestamp, collection } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -9,19 +8,20 @@ let currentUserUid = null;
 let heartbeatInterval = null;
 let unsubscribeUsers = null;
 
-// Marcar como online (usa merge: true para NO borrar username/email)
-async function updateStatus(uid, isOnline) {
+// Función para actualizar estado
+async function setOnline(uid) {
     if (!uid) return;
-    
-    // 🔴 SOLO actualizar isOnline y lastSeen
-    // NO tocar username
-    await setDoc(doc(db, 'users', uid), {
-        isOnline: isOnline,
-        lastSeen: serverTimestamp()
-    }, { merge: true });
+    try {
+        await setDoc(doc(db, 'users', uid), {
+            isOnline: true,
+            lastSeen: serverTimestamp()
+        }, { merge: true });
+        console.log("✅ Marcado como online:", uid);
+    } catch (e) { 
+        console.error("❌ Error online:", e); 
+    }
 }
 
-// Marcar como offline
 async function setOffline(uid) {
     if (!uid) return;
     try {
@@ -30,28 +30,58 @@ async function setOffline(uid) {
             lastSeen: serverTimestamp()
         }, { merge: true });
         console.log("🔴 Marcado como offline:", uid);
-    } catch (e) { console.error(" Error offline:", e); }
+    } catch (e) { 
+        console.error("❌ Error offline:", e); 
+    }
 }
 
-// Listener principal de sesión
+// Listener de autenticación
 onAuthStateChanged(auth, async (user) => {
     if (user) {
-        console.log('🟢 Usuario autenticado:', user.uid);
+        console.log("🟢 Usuario autenticado:", user.uid);
         currentUserUid = user.uid;
         panelEl.classList.remove('hidden');
         
+        // Marcar online
         await setOnline(user.uid);
-        startHeartbeat(user.uid);
-        setupPresenceListeners(user.uid);
-        startRealtimeListener();
-    } else {
-        console.log('🔴 CERRANDO SESIÓN...');
-        if (currentUserUid) {
-            console.log('⏳ Marcando offline a:', currentUserUid);
-            await setOffline(currentUserUid);
-            console.log('✅ Offline marcado');
+        
+        // Heartbeat cada 5 segundos
+        heartbeatInterval = setInterval(() => {
+            setOnline(user.uid);
+        }, 5000);
+        
+        // Cancelar listener anterior si existe
+        if (unsubscribeUsers) {
+            unsubscribeUsers();
         }
         
+        // Escuchar usuarios
+        unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+            if (!usersListEl) return;
+            usersListEl.innerHTML = '';
+            
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data();
+                const uid = docSnap.id;
+                
+                // Solo mostrar otros usuarios online
+                if (data.isOnline === true && data.username && uid !== currentUserUid) {
+                    const li = document.createElement('li');
+                    li.textContent = data.username;
+                    usersListEl.appendChild(li);
+                }
+            });
+            
+            if (usersListEl.children.length === 0) {
+                usersListEl.innerHTML = '<li style="color:#666;">Nadie más conectado</li>';
+            }
+        });
+        
+    } else {
+        console.log("🔴 Cerrando sesión...");
+        if (currentUserUid) {
+            await setOffline(currentUserUid);
+        }
         currentUserUid = null;
         panelEl.classList.add('hidden');
         clearInterval(heartbeatInterval);
@@ -60,58 +90,12 @@ onAuthStateChanged(auth, async (user) => {
             unsubscribeUsers = null;
         }
         if (usersListEl) usersListEl.innerHTML = '';
-        console.log('🧹 Limpieza completada');
     }
 });
 
-// Latido cada 5 segundos (como pediste)
-function startHeartbeat(uid) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = setInterval(() => {
-        if (uid && document.visibilityState === 'visible') {
-            setOnline(uid);
-        }
-    }, 5000);
-}
-
-// Detectar cierre brusco o pestaña en segundo plano
-function setupPresenceListeners(uid) {
-    window.addEventListener('beforeunload', () => setOffline(uid));
-    document.addEventListener('visibilitychange', () => {
-        if (document.hidden && currentUserUid) setOffline(currentUserUid);
-        else if (!document.hidden && currentUserUid) setOnline(currentUserUid);
-    });
-}
-
-// Escuchar cambios en tiempo real
-function startRealtimeListener() {
-    if (unsubscribeUsers) unsubscribeUsers();
-    
-    unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-        if (!usersListEl) return;
-        usersListEl.innerHTML = '';
-        let count = 0;
-
-        snapshot.forEach(docSnap => {
-            const data = docSnap.data();
-            const uid = docSnap.id;
-            console.log('Usuario:', data.username, 'Online:', data.isOnline);
-            
-            // Filtro estricto: solo online, con username, y que no seas tú
-            if (data.isOnline === true && data.username && uid !== currentUserUid) {
-                const li = document.createElement('li');
-                li.textContent = data.username;
-                usersListEl.appendChild(li);
-                count++;
-            }
-        });
-
-        // Mensaje si no hay nadie más
-        if (count === 0) {
-            usersListEl.innerHTML = '<li style="color:#666; font-size:0.85rem;">Nadie más conectado</li>';
-        }
-    }, (error) => {
-        console.error("❌ Error escuchando usuarios:", error);
-        usersListEl.innerHTML = '<li style="color:red;">Error de conexión</li>';
-    });
-}
+// Cerrar pestaña
+window.addEventListener('beforeunload', () => {
+    if (currentUserUid) {
+        setOffline(currentUserUid);
+    }
+});
