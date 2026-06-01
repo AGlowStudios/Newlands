@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AGlowStudios - Login</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<!-- Panel de usuarios online -->
+<div id="onlineUsersPanel" class="hidden">
+    <h3>👥 CONECTADOS</h3>
+    <ul id="usersList"></ul>
+</div>
+<script type="module" src="online-users.js"></script>
+<body>
+
+    <!-- Canvas para partículas -->
+    <canvas id="particlesCanvas"></canvas>
+    
+    <!-- Efecto scanlines -->
+    <div class="scanlines"></div>
+
+    <!-- PANTALLA DE LOGIN / REGISTRO -->
+    <div id="authScreen">
+        <div class="auth-container">
+            <h1 class="glitch" data-text="AGlowStudios">AGlowStudios</h1>
+            <p>Bienvenido al sistema</p>
+
+            <!-- Inputs -->
+<input type="text" id="usernameInput" placeholder="Nombre de usuario" style="display: none;">
+<input type="email" id="emailInput" placeholder="Correo electrónico">
+<input type="password" id="passwordInput" placeholder="Contraseña">
+            
+            <!-- Botones -->
+            <div class="buttons">
+                <button id="btnLogin" class="btn-neon">Iniciar Sesión</button>
+                <button id="btnRegister" class="btn-secondary">Crear Cuenta</button>
+            </div>
+            
+            <p id="statusMsg"></p>
+        </div>
+    </div>
+
+    <!-- PANTALLA PRINCIPAL (Oculta al principio) -->
+    <div id="mainApp" class="hidden">
+        <h1>¡Hola, <span id="userEmail"></span>!</h1>
+        <p>Has entrado al sistema correctamente.</p>
+        <button id="btnLogout" class="btn-danger">Cerrar Sesión</button>
+    </div>
+
+   
+ <!-- Panel de usuarios online -->
+    <div id="onlineUsersPanel" class="hidden">
+        <h3>👥 CONECTADOS</h3>
+        <ul id="usersList"></ul>
+    </div>
+
+    <script type="module" src="online-users.js"></script>
+    <script type="module" src="script.js"></script>
+</body>
+</html>
