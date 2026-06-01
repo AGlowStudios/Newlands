@@ -99,6 +99,7 @@ class SystemMonitor {
     init() {
         // 1. Monitor de Red
         this.updateNetworkStatus();
+        if (!this.netSpeedText || !this.signalBars) return;
         if (this.connection) {
             this.connection.addEventListener('change', () => this.updateNetworkStatus());
         }
@@ -328,3 +329,210 @@ class LoadingSystem {
 }
 
 document.addEventListener('DOMContentLoaded', () => new LoadingSystem());
+
+
+// ==========================================
+// FIREBASE AUTH - LOGIN, REGISTRO Y USERNAMES
+// ==========================================
+import { auth, db } from './firebase-config.js';
+import { 
+    createUserWithEmailAndPassword, 
+    signInWithEmailAndPassword, 
+    signOut, 
+    onAuthStateChanged 
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// Elementos del login
+const emailInput = document.getElementById('emailInput');
+const passInput = document.getElementById('passwordInput');
+const usernameInput = document.getElementById('usernameInput');
+const btnLogin = document.getElementById('btnLogin');
+// Permitir Enter en los inputs
+emailInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') btnLogin.click();
+});
+
+passInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') btnLogin.click();
+});
+const btnRegister = document.getElementById('btnRegister');
+const btnLogout = document.getElementById('btnLogout');
+const authScreen = document.getElementById('authScreen');
+const mainApp = document.getElementById('mainApp');
+const userEmailSpan = document.getElementById('userEmail');
+const statusMsg = document.getElementById('statusMsg');
+
+// Mostrar mensajes
+function showStatus(msg, color = 'white') {
+    if (statusMsg) {
+        statusMsg.textContent = msg;
+        statusMsg.style.color = color;
+        setTimeout(() => statusMsg.textContent = '', 3000);
+    }
+}
+
+// Mostrar campo username al registrar
+if (usernameInput && btnRegister) {
+    btnRegister.addEventListener('click', () => {
+        usernameInput.style.display = 'block';
+        usernameInput.focus();
+    });
+}
+
+// Ocultar campo username al login
+if (usernameInput && btnLogin) {
+    btnLogin.addEventListener('click', () => {
+        usernameInput.style.display = 'none';
+        usernameInput.value = '';
+    });
+}
+
+// Crear cuenta con username
+if (btnRegister) {
+    btnRegister.addEventListener('click', async () => {
+        const username = usernameInput ? usernameInput.value.trim() : '';
+        const email = emailInput.value;
+        const pass = passInput.value;
+
+        if (!username || username.length < 3) return showStatus('Elige un nombre (mín. 3 letras)', 'orange');
+        if (!email || !pass) return showStatus('Llena todos los campos', 'orange');
+
+        try {
+            showStatus('Creando cuenta...', 'cyan');
+            const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+            
+            // VERIFICAR si el username ya existe
+            const existingUser = await getDoc(doc(db, 'users', 'check_username_' + username));
+            if (existingUser.exists()) {
+                await signOut(auth);
+                return showStatus('Nombre de usuario ya existe', 'red');
+            }
+            
+            // Guardar username SOLO si es cuenta nueva
+            await setDoc(doc(db, 'users', userCredential.user.uid), {
+                username: username,
+                email: email,
+                role: 'user', // Por defecto USER, no admin
+                createdAt: new Date(),
+                lastLogin: new Date()
+            });
+            
+            // Crear índice para verificar usernames únicos
+            await setDoc(doc(db, 'usernames', username), {
+                uid: userCredential.user.uid
+            });
+
+            showStatus('¡Cuenta creada!', '#00ff88');
+            if (usernameInput) usernameInput.value = '';
+            emailInput.value = '';
+            passInput.value = '';
+            
+        } catch (error) {
+            showStatus('Error: ' + error.message, 'red');
+        }
+    });
+}
+
+// Iniciar sesión
+if (btnLogin) {
+    btnLogin.addEventListener('click', async () => {
+        const email = emailInput.value;
+        const pass = passInput.value;
+
+        if (!email || !pass) return showStatus('Llena todos los campos', 'orange');
+
+        try {
+            showStatus('Entrando...', 'cyan');
+            await signInWithEmailAndPassword(auth, email, pass);
+        } catch (error) {
+            showStatus('Error: Credenciales incorrectas', 'red');
+        }
+    });
+}
+
+// Cerrar sesión
+if (btnLogout) {
+    btnLogout.addEventListener('click', async () => {
+        try {
+            showStatus('Cerrando sesión...', 'cyan');
+            
+            // 🔴 PRIMERO marcar como offline en Firestore
+            const user = auth.currentUser;
+            if (user) {
+                import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js")
+                    .then(({ doc, setDoc, serverTimestamp }) => {
+                        setDoc(doc(db, 'users', user.uid), {
+                            isOnline: false,
+                            lastSeen: serverTimestamp()
+                        }, { merge: true });
+                    });
+                
+                // Esperar 500ms para que se guarde
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            // LUEGO cerrar sesión
+            await signOut(auth);
+            
+            // Recargar página
+            setTimeout(() => {
+                window.location.reload();
+            }, 500);
+            
+        } catch (error) {
+            showStatus('Error al cerrar sesión', 'red');
+        }
+    });
+}
+
+// Escuchar cambios de auth y mostrar username
+onAuthStateChanged(auth, async (user) => {
+    if (user) {
+        try {
+            const userDoc = await getDoc(doc(db, 'users', user.uid));
+            const userData = userDoc.exists() ? userDoc.data() : null;
+            
+            // 🔴 USAR username de Firestore, NO el email
+            const displayName = userData?.username || user.email.split('@')[0];
+            
+            if (authScreen) authScreen.classList.add('hidden');
+            if (mainApp) {
+                mainApp.classList.remove('hidden');
+                if (userEmailSpan) {
+                    userEmailSpan.textContent = displayName;
+                    console.log('✅ Username mostrado:', displayName);
+                }
+            }
+        } catch (error) {
+            console.error("Error:", error);
+            if (mainApp && userEmailSpan) {
+                userEmailSpan.textContent = user.email.split('@')[0];
+            }
+        }
+    } else {
+        if (authScreen) authScreen.classList.remove('hidden');
+        if (mainApp) mainApp.classList.add('hidden');
+    }
+});
+
+// ==========================================
+// AGREGA ESTO AL FINAL DE TU SCRIPT.JS ORIGINAL
+// ==========================================
+
+// Actualizar contador de usuarios online
+window.updateOnlineCount = function(count) {
+    const onlineCount = document.getElementById('onlineCount');
+    if (onlineCount) onlineCount.textContent = count;
+};
+
+// Reloj simple
+function updateClock() {
+    const clockDisplay = document.getElementById('clockDisplay');
+    if (clockDisplay) {
+        const now = new Date();
+        clockDisplay.textContent = now.toLocaleTimeString('es-ES', { hour12: false });
+    }
+}
+setInterval(updateClock, 1000);
+updateClock();
